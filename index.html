@@ -346,17 +346,13 @@
 
         // 停止所有视频播放
         async function stopAllVideos() {
-            // 在本地环境中，使用模拟的停止操作
             console.log('停止所有视频播放');
             
             const promises = videoChannels.map(async (channel) => {
                 try {
-                    // 模拟网络延迟
-                    await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 300));
-                    
-                    // 模拟停止视频播放
-                    const mockResult = await mockStopVideoPlay(channel.id);
-                    console.log(`停止${channel.label}成功:`, mockResult);
+                    // 调用停止函数发送停止请求
+                    const res = await stopVideoPlay(channel.id);
+                    console.log(`停止${channel.label}成功:`, res);
                     
                     // 释放播放器资源
                     if (players[channel.id]) {
@@ -373,20 +369,7 @@
             });
             
             await Promise.all(promises);
-        }
-
-        // 模拟停止视频播放（在本地环境中使用）
-        async function mockStopVideoPlay(channelId) {
-            const url = `${config.stopUrl}?token=${config.token}&vid=${config.vid}&videoChannel=${channelId}`;
-            
-            try {
-                const response = await fetch(url, { timeout: 3000 });
-                const data = await response.json();
-                return data;
-            } catch (error) {
-                console.error(`停止${channelId}视频播放请求失败:`, error);
-                throw error;
-            }
+            console.log('所有停止视频请求已完成');
         }
 
         // 停止单个视频播放（在真实环境中使用）
@@ -420,15 +403,28 @@
         // 处理返回按钮点击
         async function handleBackButtonClick() {
             try {
-                // 停止所有视频（不等待完成，避免阻塞UI）
-                stopAllVideos().then(() => {
-                    console.log('所有视频已停止');
-                }).catch(error => {
-                    console.error('停止视频时出错:', error);
-                });
+                // 获取返回按钮元素
+                const backButton = document.getElementById('back-button');
+                let originalText = '';
+                
+                // 如果找到按钮，显示加载状态
+                if (backButton) {
+                    originalText = backButton.textContent;
+                    backButton.textContent = '处理中...';
+                    backButton.disabled = true;
+                }
+                
+                // 等待所有视频停止请求发送完成
+                console.log('开始停止所有视频...');
+                await stopAllVideos();
+                console.log('所有视频已停止，HTTP请求已发送');
+                
+                // 添加一个小延迟确保请求完全发送
+                await new Promise(resolve => setTimeout(resolve, 300));
                 
                 // 返回上一页
                 if (window.history.length > 1) {
+                    console.log('执行页面跳转');
                     window.history.back();
                 } else {
                     // 如果没有历史记录，可以跳转到一个默认页面或显示提示
@@ -440,13 +436,42 @@
                 if (window.history.length > 1) {
                     window.history.back();
                 }
+            } finally {
+                // 恢复按钮状态（如果在跳转前出现异常）
+                const backButton = document.getElementById('back-button');
+                if (backButton) {
+                    backButton.disabled = false;
+                }
             }
         }
 
         // 页面卸载时释放资源
-        window.addEventListener('beforeunload', async function() {
+        window.addEventListener('beforeunload', function() {
             try {
-                await stopAllVideos();
+                // 创建同步请求确保在页面卸载前发送
+                if (videoChannels && videoChannels.length > 0) {
+                    videoChannels.forEach(channel => {
+                        try {
+                            // 使用Image对象发送同步请求
+                            const img = new Image();
+                            const url = `${config.stopUrl}?token=${config.token}&vid=${config.vid}&videoChannel=${channel.id}&t=${Date.now()}`;
+                            img.src = url;
+                            
+                            // 释放播放器资源
+                            if (players[channel.id]) {
+                                try {
+                                    players[channel.id].release();
+                                } catch (e) {
+                                    console.error(`释放${channel.label}播放器资源失败:`, e);
+                                }
+                                players[channel.id] = null;
+                            }
+                        } catch (error) {
+                            console.error(`页面卸载时停止${channel.label}失败:`, error);
+                        }
+                    });
+                }
+                console.log('页面卸载时已发送停止请求');
             } catch (error) {
                 console.error('页面卸载时释放资源失败:', error);
             }
