@@ -346,12 +346,17 @@
 
         // 停止所有视频播放
         async function stopAllVideos() {
-            console.log('停止所有视频播放');
+            console.log('停止所有视频播放 - 共'+videoChannels.length+'个通道');
             
-            const promises = videoChannels.map(async (channel) => {
+            // 创建一个新的promise数组，确保捕获每个请求的结果
+            const results = [];
+            
+            for (const channel of videoChannels) {
                 try {
-                    // 调用停止函数发送停止请求
+                    console.log(`开始停止${channel.label}...`);
+                    // 调用停止函数发送停止请求，并等待返回结果
                     const res = await stopVideoPlay(channel.id);
+                    results.push({ channelId: channel.id, success: true, data: res });
                     console.log(`停止${channel.label}成功:`, res);
                     
                     // 释放播放器资源
@@ -364,12 +369,13 @@
                         players[channel.id] = null;
                     }
                 } catch (error) {
+                    results.push({ channelId: channel.id, success: false, error: error.message });
                     console.error(`停止${channel.label}失败:`, error);
                 }
-            });
+            }
             
-            await Promise.all(promises);
-            console.log('所有停止视频请求已完成');
+            console.log('所有停止视频请求已完成，结果:', results);
+            return results;
         }
 
         // 停止单个视频播放（在真实环境中使用）
@@ -410,17 +416,64 @@
                 // 如果找到按钮，显示加载状态
                 if (backButton) {
                     originalText = backButton.textContent;
-                    backButton.textContent = '处理中...';
+                    backButton.textContent = '停止中(0/4)...';
                     backButton.disabled = true;
                 }
                 
                 // 等待所有视频停止请求发送完成
                 console.log('开始停止所有视频...');
-                await stopAllVideos();
-                console.log('所有视频已停止，HTTP请求已发送');
+                
+                // 使用自定义计数器显示进度
+                let completedRequests = 0;
+                const totalChannels = videoChannels.length;
+                
+                // 增强版停止函数，确保所有请求都返回
+                async function stopAllVideosWithProgress() {
+                    const results = [];
+                    
+                    for (const channel of videoChannels) {
+                        try {
+                            console.log(`开始停止${channel.label}...`);
+                            const res = await stopVideoPlay(channel.id);
+                            results.push({ channelId: channel.id, success: true, data: res });
+                            
+                            // 更新进度
+                            completedRequests++;
+                            if (backButton) {
+                                backButton.textContent = `停止中(${completedRequests}/${totalChannels})...`;
+                            }
+                            console.log(`停止${channel.label}成功:`, res);
+                            
+                            // 释放播放器资源
+                            if (players[channel.id]) {
+                                try {
+                                    players[channel.id].release();
+                                } catch (e) {
+                                    console.error(`释放${channel.label}播放器资源失败:`, e);
+                                }
+                                players[channel.id] = null;
+                            }
+                        } catch (error) {
+                            results.push({ channelId: channel.id, success: false, error: error.message });
+                            
+                            // 即使失败也更新进度
+                            completedRequests++;
+                            if (backButton) {
+                                backButton.textContent = `停止中(${completedRequests}/${totalChannels})...`;
+                            }
+                            console.error(`停止${channel.label}失败:`, error);
+                        }
+                    }
+                    
+                    return results;
+                }
+                
+                // 等待所有请求完成
+                const results = await stopAllVideosWithProgress();
+                console.log('所有视频停止请求已完成，结果:', results);
                 
                 // 添加一个小延迟确保请求完全发送
-                await new Promise(resolve => setTimeout(resolve, 300));
+                await new Promise(resolve => setTimeout(resolve, 500));
                 
                 // 返回上一页
                 if (window.history.length > 1) {
