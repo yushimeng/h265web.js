@@ -260,9 +260,13 @@
                 const data = await response.json();
                 
                 if (data.code === 200 && data.flv) {
+                    // http:// 替换成https:// 
+                    httpsflvUrl = data.flv.replace(/^http:\/\//, 'https://');
+
                     // 提取flv URL（去除前后的空格和反引号）
-                    const flvUrl = data.flv.replace(/[\s`]/g, '');
+                    const flvUrl = httpsflvUrl.replace(/[\s`]/g, '');
                     videoUrls[channel.id] = flvUrl;
+                    console.log(`获取${channel.label}视频链接成功: ${flvUrl}`);
                     
                     // 创建并启动播放器
                     createPlayer(channel, flvUrl);
