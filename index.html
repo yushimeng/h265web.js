@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>车辆四视图监控</title>
+    <script src="dist/missile.js"></script>
+    <script src="dist/h265webjs-v20221106.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #000;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+        }
+        
+        .container {
+            width: 100%;
+            height: 100vh;
+            display: grid;
+            grid-template-rows: 33.33vh 66.67vh;
+            position: relative;
+        }
+        
+        .back-button {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 40px;
+            height: 40px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 100;
+            transition: background-color 0.3s;
+        }
+        
+        .back-button:hover {
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+        
+        .back-button::before {
+            content: '<';
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .top-views {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            background-color: #111;
+            gap: 0;
+        }
+        
+        .bottom-view {
+            width: 100%;
+            height: 100%;
+            background-color: #222;
+            position: relative;
+        }
+        
+        .view {
+            flex: 1;
+            background-color: #000;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .view:not(:last-child) {
+            margin-right: 1px;
+        }
+        
+        .view-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .player {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 确保视频完全填充容器 */
+        .player video, .player canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover; /* 保持宽高比并填充容器，可能会裁剪部分画面 */
+            /* 使用 object-fit: fill; 会完全拉伸视频填满容器，但可能导致变形 */
+        }
+
+        /* 确保h265webjs创建的播放器元素也能填满容器 */
+        #leftPlayer, #backPlayer, #rightPlayer, #frontPlayer {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="back-button" id="backButton"></div>
+        
+        <div class="top-views">
+            <div class="view">
+                <div class="view-label">左视图</div>
+                <div id="leftPlayer" class="player"></div>
+                <div id="leftLoading" class="loading">加载中...</div>
+            </div>
+            <div class="view">
+                <div class="view-label">后视图</div>
+                <div id="backPlayer" class="player"></div>
+                <div id="backLoading" class="loading">加载中...</div>
+            </div>
+            <div class="view">
+                <div class="view-label">右视图</div>
+                <div id="rightPlayer" class="player"></div>
+                <div id="rightLoading" class="loading">加载中...</div>
+            </div>
+        </div>
+        
+        <div class="bottom-view">
+            <div id="frontPlayer" class="player"></div>
+            <div id="frontLoading" class="loading">加载中...</div>
+        </div>
+    </div>
+
+    <script>
+        // 配置信息
+        const config = {
+            token: '', 
+            vid: '',
+            startUrl: '', 
+            stopUrl: ''
+        };
+
+        // 从URL参数中获取配置
+        function getConfigFromUrlParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const httpAddress = urlParams.get('httpAddress');
+            const token = urlParams.get('token');
+            const vin = urlParams.get('vin');
+            
+            if (httpAddress) {
+                // 移除末尾的斜杠（如果有）
+                const baseUrl = httpAddress.replace(/\/$/, '');
+                config.startUrl = `${baseUrl}/startVideoPlay`;
+                config.stopUrl = `${baseUrl}/stopVideoPlay`;
+            }
+            
+            if (token) {
+                config.token = token;
+            }
+            
+            if (vin) {
+                config.vid = vin;
+            }
+        }
+
+        // 获取URL参数中的配置
+        getConfigFromUrlParams();
+
+        // 视频通道配置
+        const videoChannels = [
+            { id: 0, name: 'center', label: '前视图', playerId: 'frontPlayer', loadingId: 'frontLoading' },
+            { id: 1, name: 'back', label: '后视图', playerId: 'backPlayer', loadingId: 'backLoading' },
+            { id: 2, name: 'left', label: '左视图', playerId: 'leftPlayer', loadingId: 'leftLoading' },
+            { id: 3, name: 'right', label: '右视图', playerId: 'rightPlayer', loadingId: 'rightLoading' }
+        ];
+
+        // 存储播放器实例和视频URL
+        const players = {};
+        const videoUrls = {};
+
+        // 初始化页面
+        document.addEventListener('DOMContentLoaded', async function() {
+            // 注册返回按钮事件
+            document.getElementById('backButton').addEventListener('click', handleBackButtonClick);
+            
+            // 启动所有视频播放
+            await startAllVideos();
+        });
+
+        // 启动所有视频
+        async function startAllVideos() {
+            // 判断配置是否有效, 如果无效直接alert退出
+            if (config.startUrl === '' || config.token === '' || config.vid === '') {
+                alert('请从URL参数中传入有效配置');
+                return;
+            }
+            
+            console.log('启动视频播放');
+            const promises = videoChannels.map(async (channel) => {
+                try {
+                    await startVideoPlay(channel);
+                } catch (error) {
+                    console.error(`启动${channel.label}失败:`, error);
+                    const loadingElement = document.getElementById(channel.loadingId);
+                    if (loadingElement) {
+                        loadingElement.textContent = '加载失败';
+                    }
+                }
+            });
+            
+            await Promise.all(promises);
+        }
+
+        // 启动单个视频播放（在真实环境中使用）
+        async function startVideoPlay(channel, retryCount = 0) {
+            const url = `${config.startUrl}?token=${config.token}&vid=${config.vid}&videoChannel=${channel.id}`;
+            
+            try {
+                // 使用AbortController实现请求超时
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const response = await fetch(url, {
+                    signal: controller.signal,
+                    method: 'GET',
+                    headers: {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP错误: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.code === 200 && data.flv) {
+                    // 提取flv URL（去除前后的空格和反引号）
+                    const flvUrl = data.flv.replace(/[\s`]/g, '');
+                    videoUrls[channel.id] = flvUrl;
+                    
+                    // 创建并启动播放器
+                    createPlayer(channel, flvUrl);
+                } else {
+                    throw new Error(`获取${channel.label}视频链接失败: ${data.msg || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error(`请求${channel.label}视频播放链接失败:`, error);
+                
+                // 重试逻辑：如果是AbortError（超时或取消）且重试次数小于3，则等待一段时间后重试
+                if ((error.name === 'AbortError' || error.message.includes('aborted')) && retryCount < 3) {
+                    console.log(`请求${channel.label}超时，${retryCount + 1}秒后重试（${retryCount + 1}/3）`);
+                    await new Promise(resolve => setTimeout(resolve, (retryCount + 1) * 1000));
+                    return startVideoPlay(channel, retryCount + 1);
+                }
+                
+                throw error;
+            }
+        }
+
+        // 创建播放器
+        function createPlayer(channel, videoUrl) {
+            const playerConfig = {
+                player: channel.playerId,
+                width: '100%',
+                height: '100%',
+                token: 'base64:QXV0aG9yOmNoYW5neWFubG9uZ3xudW1iZXJ3b2xmLEdpdGh1YjpodHRwczovL2dpdGh1Yi5jb20vbnVtYmVyd29sZixFbWFpbDpwb3JzY2hlZ3QyM0Bmb3htYWlsLmNvbSxRUTo1MzEzNjU4NzIsSG9tZVBhZ2U6aHR0cDovL3h2aWRlby52aWRlbyxEaXNjb3JkOm51bWJlcndvbGYjODY5NCx3ZWNoYXI6bnVtYmVyd29sZjExLEJlaWppbmcsV29ya0luOkJhaWR1',
+                extInfo: {
+                    coreProbePart: 0.1,
+                    probeSize: 1024,
+                    ignoreAudio: 1,
+                    coreProbePart: 0.1,
+                    autoPlay: true,
+                    cacheLength: 10,
+                    rawFps: 30
+                }
+            };
+
+            try {
+                // config = JSON.parse(playerConfig);
+                // config = playerConfig;
+                console.log("config:", playerConfig);
+                // 创建播放器实例
+                const player = window.new265webjs(videoUrl, playerConfig);
+                
+                // 监听播放器事件
+                player.onReadyShowDone = function() {
+                    // 隐藏加载提示
+                    document.getElementById(channel.loadingId).style.display = 'none';
+                };
+                
+                player.onLoadError = function() {
+                    document.getElementById(channel.loadingId).textContent = '视频加载错误';
+                };
+                
+                // 存储播放器实例
+                players[channel.id] = player;
+                
+                // 启动播放
+                player.do();
+            } catch (error) {
+                console.error(`创建${channel.label}播放器失败:`, error);
+                // 显示模拟的视频占位符
+                const playerElement = document.getElementById(channel.playerId);
+                playerElement.innerHTML = `
+                    <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background-color:#111;">
+                        <div style="text-align:center;">
+                            <div style="font-size:48px; margin-bottom:10px;">📹</div>
+                            <div>${channel.label}</div>
+                            <div style="font-size:12px; color:#666; margin-top:5px;">视频连接中...</div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById(channel.loadingId).style.display = 'none';
+            }
+        }
+
+        // 停止所有视频播放
+        async function stopAllVideos() {
+            // 在本地环境中，使用模拟的停止操作
+            console.log('停止所有视频播放');
+            
+            const promises = videoChannels.map(async (channel) => {
+                try {
+                    // 模拟网络延迟
+                    await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 300));
+                    
+                    // 模拟停止视频播放
+                    const mockResult = await mockStopVideoPlay(channel.id);
+                    console.log(`停止${channel.label}成功:`, mockResult);
+                    
+                    // 释放播放器资源
+                    if (players[channel.id]) {
+                        try {
+                            players[channel.id].release();
+                        } catch (e) {
+                            console.error(`释放${channel.label}播放器资源失败:`, e);
+                        }
+                        players[channel.id] = null;
+                    }
+                } catch (error) {
+                    console.error(`停止${channel.label}失败:`, error);
+                }
+            });
+            
+            await Promise.all(promises);
+        }
+
+        // 模拟停止视频播放（在本地环境中使用）
+        async function mockStopVideoPlay(channelId) {
+            const url = `${config.stopUrl}?token=${config.token}&vid=${config.vid}&videoChannel=${channelId}`;
+            
+            try {
+                const response = await fetch(url, { timeout: 3000 });
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error(`停止${channelId}视频播放请求失败:`, error);
+                throw error;
+            }
+        }
+
+        // 停止单个视频播放（在真实环境中使用）
+        async function stopVideoPlay(channelId) {
+            const url = `${config.stopUrl}?token=${config.token}&vid=${config.vid}&videoChannel=${channelId}`;
+            
+            try {
+                // 添加超时设置，避免请求时间过长
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
+                
+                const response = await fetch(url, {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                
+                const data = await response.json();
+                
+                if (data.code !== 200) {
+                    console.warn(`停止视频通道${channelId}响应异常:`, data);
+                }
+                
+                return data;
+            } catch (error) {
+                console.error(`停止视频通道${channelId}请求失败:`, error);
+                // 不抛出错误，继续执行后续操作
+                return { code: 500, msg: error.message };
+            }
+        }
+
+        // 处理返回按钮点击
+        async function handleBackButtonClick() {
+            try {
+                // 停止所有视频（不等待完成，避免阻塞UI）
+                stopAllVideos().then(() => {
+                    console.log('所有视频已停止');
+                }).catch(error => {
+                    console.error('停止视频时出错:', error);
+                });
+                
+                // 返回上一页
+                if (window.history.length > 1) {
+                    window.history.back();
+                } else {
+                    // 如果没有历史记录，可以跳转到一个默认页面或显示提示
+                    alert('已返回首页');
+                }
+            } catch (error) {
+                console.error('处理返回操作失败:', error);
+                // 即使出错，也尝试返回上一页
+                if (window.history.length > 1) {
+                    window.history.back();
+                }
+            }
+        }
+
+        // 页面卸载时释放资源
+        window.addEventListener('beforeunload', async function() {
+            try {
+                await stopAllVideos();
+            } catch (error) {
+                console.error('页面卸载时释放资源失败:', error);
+            }
+        });
+    </script>
+</body>
+</html>

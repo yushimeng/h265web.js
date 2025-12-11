@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>车辆监控系统 - 登录</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #0a0a0a;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-image: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
+        }
+        
+        .login-container {
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border: 1px solid #333;
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .login-header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            color: #4CAF50;
+        }
+        
+        .login-header p {
+            color: #888;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #ccc;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #4CAF50;
+            background-color: #333;
+        }
+        
+        .form-group input::placeholder {
+            color: #666;
+        }
+        
+        .login-button {
+            width: 100%;
+            padding: 14px;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .login-button:hover {
+            background-color: #45a049;
+        }
+        
+        .login-button:active {
+            background-color: #3d8b40;
+        }
+        
+        .login-button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+        
+        .error-message {
+            color: #ff4444;
+            text-align: center;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        .version-info {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>车辆监控系统</h1>
+            <p>请输入连接信息</p>
+        </div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="httpAddress">HTTP地址</label>
+                <input type="text" id="httpAddress" placeholder="输入服务器地址" value="https://space-shanghai-left.neolix.net:57007" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="token">Token</label>
+                <input type="text" id="token" placeholder="输入访问令牌" value="yushimeng" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="vin">VIN</label>
+                <input type="text" id="vin" placeholder="输入车辆识别码" value="" required>
+            </div>
+            
+            <button type="submit" class="login-button" id="loginBtn">登录</button>
+            
+            <div class="error-message" id="errorMsg"></div>
+        </form>
+        
+        <div class="version-info">
+            Version 1.0.0
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const loginForm = document.getElementById('loginForm');
+            const loginBtn = document.getElementById('loginBtn');
+            const errorMsg = document.getElementById('errorMsg');
+            const httpAddressInput = document.getElementById('httpAddress');
+            const tokenInput = document.getElementById('token');
+            const vinInput = document.getElementById('vin');
+            
+            // 从本地存储加载保存的登录信息
+            function loadSavedLoginInfo() {
+                try {
+                    const savedInfo = localStorage.getItem('vehicleMonitorLoginInfo');
+                    if (savedInfo) {
+                        const { httpAddress, token } = JSON.parse(savedInfo);
+                        if (httpAddress) {
+                            httpAddressInput.value = httpAddress;
+                        }
+                        if (token) {
+                            tokenInput.value = token;
+                        }
+                        // 注意：VIN不会自动填充，用户需要手动输入
+                    }
+                } catch (error) {
+                    console.error('加载保存的登录信息失败:', error);
+                }
+            }
+            
+            // 保存登录信息到本地存储
+            function saveLoginInfo(httpAddress, token) {
+                try {
+                    const loginInfo = {
+                        httpAddress: httpAddress,
+                        token: token,
+                        saveTime: new Date().toISOString()
+                    };
+                    localStorage.setItem('vehicleMonitorLoginInfo', JSON.stringify(loginInfo));
+                } catch (error) {
+                    console.error('保存登录信息失败:', error);
+                }
+            }
+            
+            // 自动加载保存的登录信息
+            loadSavedLoginInfo();
+            
+            loginForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                // 重置错误消息
+                errorMsg.textContent = '';
+                
+                // 获取表单数据
+                const httpAddress = httpAddressInput.value.trim();
+                const token = tokenInput.value.trim();
+                const vin = vinInput.value.trim();
+                
+                // 基本表单验证
+                if (!httpAddress) {
+                    errorMsg.textContent = '请输入HTTP地址';
+                    return;
+                }
+                
+                if (!token) {
+                    errorMsg.textContent = '请输入Token';
+                    return;
+                }
+                
+                if (!vin) {
+                    errorMsg.textContent = '请输入VIN';
+                    return;
+                }
+                
+                // 验证HTTP地址格式
+                try {
+                    new URL(httpAddress);
+                } catch (e) {
+                    errorMsg.textContent = '请输入有效的HTTP地址';
+                    return;
+                }
+                
+                // 保存登录信息（不包括VIN）
+                saveLoginInfo(httpAddress, token);
+                
+                // 显示加载状态
+                loginBtn.textContent = '登录中...';
+                loginBtn.disabled = true;
+                
+                // 构建URL参数
+                const params = new URLSearchParams();
+                params.append('httpAddress', httpAddress);
+                params.append('token', token);
+                params.append('vin', vin);
+                
+                // 延迟跳转，模拟登录过程
+                setTimeout(() => {
+                    // 跳转到播放页面，并传递参数
+                    window.location.href = `index.html?${params.toString()}`;
+                }, 800);
+            });
+        });
+    </script>
+</body>
+</html>
